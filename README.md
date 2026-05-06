@@ -85,3 +85,7 @@ idea4rc-capsule check-config --config $HOME/capsule.toml
 - Start troubleshooting from [docs/10-troubleshooting.md](docs/10-troubleshooting.md); secret-handling limits are summarized in [docs/11-security-model.md](docs/11-security-model.md).
 
 Full operator documentation: [docs/README.md](docs/README.md). CLI flags and defaults: [docs/12-cli-reference.md](docs/12-cli-reference.md). Secrets and threat notes: [docs/11-security-model.md](docs/11-security-model.md).
+
+## License
+
+This repository is licensed under the MIT License. Runtime dependencies and external tools keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
