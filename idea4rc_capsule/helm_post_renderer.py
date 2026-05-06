@@ -96,6 +96,14 @@ def filter_stream(input_lines: Iterable[str], drop_kinds: set[str]) -> str:
 
 
 def main() -> int:
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        sys.stdout.write(
+            "usage: idea4rc-helm-post-renderer < rendered.yaml > filtered.yaml\n\n"
+            "Strip selected Kubernetes resource kinds from Helm-rendered YAML.\n"
+            "Configure the comma-separated kind list with "
+            "IDEA4RC_HPR_DROP_KINDS; default: Namespace.\n"
+        )
+        return 0
     drop_kinds = _drop_kinds_from_env()
     if not drop_kinds:
         sys.stdout.write(sys.stdin.read())
