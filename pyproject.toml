@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "idea4rc-capsule"
+version = "0.1.0"
+description = "End-to-end IDEA4RC capsule deployment + ingestion automation, in Python."
+authors = ["IDEA4RC capsule maintainers <noreply@invalid.local>"]
+readme = "README.md"
+license = "MIT"
+packages = [{ include = "idea4rc_capsule" }]
+include = [
+    { path = "idea4rc_capsule/data/*", format = ["sdist", "wheel"] },
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+hvac = "^2.0"
+requests = "^2.31"
+tomli = { version = "^2.0", python = "<3.11" }
+
+[tool.poetry.scripts]
+idea4rc-capsule = "idea4rc_capsule.cli:main"
+idea4rc-helm-post-renderer = "idea4rc_capsule.helm_post_renderer:main"
+
+[build-system]
+requires = ["poetry-core>=1.5.0"]
+build-backend = "poetry.core.masonry.api"

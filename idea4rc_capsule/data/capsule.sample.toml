@@ -1,0 +1,247 @@
+# IDEA4RC capsule deployment configuration (TOML).
+#
+# Keep this file non-sensitive. When [vault].enabled = true the capsule
+# install secrets are read from Vault at runtime; when false they live in
+# [fallback_secrets] (chmod 600 the file in that case).
+#
+# Generate this template with:
+#   idea4rc-capsule init-config > ~/capsule.toml
+# After editing site-specific values, validate without running anything with:
+#   idea4rc-capsule check-config --config ~/capsule.toml
+# Path settings may use ~ or environment variables such as $HOME.
+
+[k8s]
+# Kubernetes namespace where the capsule release lives.
+namespace      = "datamesh"
+# Helm release name.
+release_name   = "idea4rc-capsule"
+# Path to the Helm chart on disk (clone of idea4rc-helm-capsule).
+chart_path     = "$HOME/idea4rc-helm-capsule"
+# Optional Helm values file. Leave empty if not used.
+helm_values_file = ""
+# Additional namespaces to (re)create alongside `namespace`.
+extra_namespaces = ["v6-tasks"]
+# kubectl/helm binaries. Override for microk8s, k3s, minikube, etc.
+kubectl_bin    = "microk8s.kubectl"
+helm_bin       = "microk8s.helm"
+# kubectl wait timeout (e.g. "300s", "10m", "1h").
+wait_timeout   = "600s"
+# Label selector used to wait for capsule pods Ready after install.
+ready_label_selector = "app=etl-idea"
+# PVs that must be deleted before destroy (PVC bindings hold them across
+# namespace deletion). Leave empty to skip explicit PV deletion.
+pvs_to_delete_before_destroy = [
+    "idea4rc-capsule-db-pv",
+    "idea4rc-capsule-logs-pv",
+    "idea4rc-capsule-task-pv",
+]
+# Workaround for setups that block traffic with default NetworkPolicies.
+delete_all_network_policies = false
+# Capsule recreation policy: upgrades are not supported, so force fresh
+# delete/recreate. Set false only if the upstream chart supports `helm
+# upgrade`.
+force_recreate_only = true
+
+
+[capsule_install]
+# When true, run an external installer instead of pure `helm upgrade`.
+# Recommended; the env-driven installer handles `--set` of v6/fcbexec
+# values.
+use_install_script  = true
+# Optional path to a partner-specific installer. Leave empty to use the
+# bundled env-driven installer shipped with this package.
+install_script_path = ""
+# Extra args appended to the install script (rarely needed).
+install_script_args = []
+# Public host/IP exposed by the capsule. Used by `--set capsulePublicHost`
+# and the public ingest URL. Required when [vault].enabled = false.
+public_ip = "capsule.example.org"
+
+
+[repo_sync]
+# Refresh chart repo before destroy/install. Strongly recommended; we
+# fail-fast on git/auth errors before nuking the running cluster.
+enabled = true
+url     = "https://github.com/IDEA4RC/idea4rc-helm-capsule"
+branch  = "omop-etl-dev"
+# When true, hard-resets the local clone to origin/<branch>. Use only if
+# you do not need any local edits in chart_path.
+reset   = false
+
+
+[vault]
+# When true, capsule install secrets are fetched from Vault at runtime
+# via idea4rc-vault.
+enabled       = false
+addr          = "http://127.0.0.1:8200"
+secret_mount  = "secret"
+kv_base       = "idea4rc-capsule"
+# REQUIRED when enabled = true: chmod-600 file containing
+#   VAULT_ROLE_ID=...
+#   VAULT_SECRET_ID=...
+approle_file  = "$HOME/.vault-approle"
+
+
+[fallback_secrets]
+# Plaintext capsule-install secret fallback. Used only when
+# [vault].enabled = false. chmod 600 the TOML file in that case.
+v6node_apikey                  = ""
+v6node_name                    = ""
+v6node_k8s_nodename            = ""
+fcbexec_keycloak_clientid      = ""
+fcbexec_keycloak_clientsecret  = ""
+fcbexec_keycloak_host          = "https://idea4rc-keykloak.development-iti.com/auth"
+fcbexec_kafka_clientid         = ""
+fcbexec_kafka_consumerid       = ""
+
+
+[query_executor]
+# Optional post-install Query Executor secret creation hook.
+enabled            = true
+# Bash script that consumes ca.pem/client.cert.pem/client.key.pem from
+# its CWD and creates the k8s Secret. Bundled with the helm chart.
+secret_script_path = "$HOME/idea4rc-helm-capsule/utils/query-executor-create-secret.sh"
+
+
+[omop]
+# OMOP Postgres pod identification.
+db_selector    = "app=omop-postgres"
+db_pod_name    = ""           # explicit pod name (takes precedence over selector)
+db_container   = ""           # container name for `kubectl exec/cp`, optional
+# Database connection details inside the OMOP Postgres pod.
+db_name        = "omopdb"
+db_admin_user  = "cdm_idea"
+app_user       = "etl_idea"
+schema         = "cdm_idea"
+# OMOP dictionary dump (pg_restore-able archive) to load after install.
+dict_dump_path = "$HOME/idea4rc-capsule-omop-dictionary.dump"
+# Rollout target for the omop-etl deployment that consumes staging tables.
+etl_deployment   = "omop-etl"
+etl_min_replicas = 1
+
+
+[aerospike_drain]
+# Drain knobs for Aerospike upload-buffer (etl-idea -> Aerospike).
+deployment        = "aerospike"
+as_namespace      = "idea4rc"
+as_set            = "ExcelRecord"
+timeout           = 14400      # absolute hard cap, wall-clock seconds (4h)
+poll_interval     = 15
+stable_polls      = 3
+min_rows          = 1
+min_wait_seconds  = 60
+max_stall_seconds = 900        # adaptive stall detector (15 min)
+
+
+[staging_drain]
+# Drain knobs for the staging Postgres (Spring Batch -> staging public
+# schema). Trusted over the upload status flag.
+deployment        = "etl"
+user_env          = "POSTGRES_USER"
+name_env          = "POSTGRES_DB"
+schema            = "public"
+exclude_tables    = ["table_generator"]
+timeout           = 14400
+poll_interval     = 15
+stable_polls      = 3
+min_rows          = 1
+min_wait_seconds  = 60
+max_stall_seconds = 600
+
+
+[omop_drain]
+# Drain knobs for OMOP CDM (omop-etl -> cdm_idea schema).
+table             = "person"
+timeout           = 14400
+poll_interval     = 15
+stable_polls      = 3
+min_rows          = 1
+min_wait_seconds  = 60
+max_stall_seconds = 600
+
+
+[ingest]
+# CLI: add --skip-deploy to upload + drain + audit without redeploying
+#   (requires a prior successful `idea4rc-capsule deploy`). See
+#   `ingest --help` for --with-repo-sync.
+# "public": curl the public ingress URL.
+# "port-forward": run kubectl port-forward to the etl service and curl
+#   over localhost. Recommended (bypasses Nginx 30-min connection cap).
+mode = "port-forward"
+
+# Public-ingress template. __CSV_PATH__ / __NAMESPACE__ are substituted.
+public_template = '''curl -vk --connect-timeout 30 --max-time 1800 --location "https://${CAPSULE_PUB_IP}/datagate/etl/upload" --form "dataFile=@__CSV_PATH__"'''
+
+# Port-forward template. ${INGEST_PORT_FORWARD_LOCAL_PORT} is taken from
+# the value below.
+port_forward_template = '''curl -v --connect-timeout 30 --max-time 1800 --location "http://localhost:${INGEST_PORT_FORWARD_LOCAL_PORT}/etl/upload" --form "dataFile=@__CSV_PATH__"'''
+port_forward_target            = "svc/etl-svc"
+port_forward_target_port       = 4001
+port_forward_local_port        = 18080
+port_forward_ready_timeout     = 60
+
+
+[audit]
+# Optional post-ingestion audit pipeline. Empty -> skip audit.
+# Python package `capsule_audit` under $HOME/audit; set PYTHONPATH to that directory.
+command_template = 'cd $HOME/audit && PYTHONPATH=$HOME/audit python3 -m capsule_audit run -c $HOME/audit/audit.conf --html $HOME/capsule-audit-latest/SUMMARY.html'
+# Leave summary_md_path empty when the command writes HTML only via --html.
+summary_md_path   = ""
+summary_html_path = "$HOME/capsule-audit-latest/SUMMARY.html"
+
+
+[paths]
+# Where ingest run artefacts are written.
+log_dir = "$HOME/capsule-ingestion-logs"
+
+
+[runtime_overrides]
+# Post-install `kubectl set env` patches applied to specific deployments.
+# Use this to encode workarounds the helm chart doesn't bake in (e.g.
+# raising Spring Boot multipart upload limits to accept large CSVs).
+# Each entry under `deployment_env` maps a deployment name to a table of
+# env vars merged into its podspec; a rollout restart is triggered after.
+# Disable by setting enabled = false; clear specific deployments by
+# setting deployment_env to an empty table.
+enabled         = true
+rollout_timeout = "300s"
+
+[runtime_overrides.deployment_env.etl-idea]
+# Defaults required for >100MB CSV ingest. Tune up if needed.
+SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE    = "200MB"
+SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE = "200MB"
+
+
+[helm_post_renderer]
+# Strip selected resource kinds from the manifests helm renders, before
+# kubectl apply. We use this to keep namespace ownership outside helm
+# without forking the chart -- the orchestrator pre-creates the
+# namespaces in destroy/deploy, so helm should NOT also try to create
+# them (it would fail with an ownership-annotation conflict).
+#
+#   enabled       -> set false to disable filtering and let helm see the
+#                    chart unmodified.
+#   binary        -> name (or absolute path) of the post-renderer
+#                    executable. Default 'idea4rc-helm-post-renderer'
+#                    is shipped by this package and resolved via PATH.
+#   kinds_to_drop -> list of k8s 'kind:' values to strip; only top-level
+#                    'kind:' is matched (helm output is always
+#                    well-behaved here). Empty list = no-op.
+enabled       = true
+binary        = "idea4rc-helm-post-renderer"
+kinds_to_drop = ["Namespace"]
+
+
+[safety]
+# Skip the "Type 'yes' to continue" prompt that gates the destructive
+# deploy/ingest operations (helm uninstall, PV deletion, OMOP wipe).
+# Equivalent to passing --yes on every invocation.
+#
+#   true  -> orchestrator auto-confirms destruction; no prompt.
+#            Use only on a single-operator host you trust.
+#   false -> orchestrator asks "Type 'yes' to continue" before any
+#            destructive action. Default; safe for shared/prod hosts.
+#
+# Command-line --yes always wins for one-off scripted runs regardless
+# of this value.
+auto_confirm_destruction = false
